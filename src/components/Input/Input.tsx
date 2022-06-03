@@ -1,11 +1,20 @@
-import { forwardRef, ComponentProps, ForwardedRef } from 'react';
+import {
+  forwardRef,
+  ComponentProps,
+  ForwardedRef,
+  useImperativeHandle,
+  useRef,
+} from 'react';
 import styled from 'styled-components';
 
 function Input(
   props: ComponentProps<any>,
   ref: ForwardedRef<HTMLInputElement>
 ) {
-  return <StyledInput ref={ref} {...props} />;
+  const inputRef = useRef<HTMLInputElement>();
+  useImperativeHandle(ref, () => inputRef.current as HTMLInputElement);
+
+  return <StyledInput ref={inputRef} {...props} />;
 }
 
 const StyledInput = styled.input`

@@ -8,6 +8,8 @@ import * as S from './FillInfoStep.styled';
 import { useOutletContext } from 'react-router-dom';
 import { SigninResponseBody } from '../../../../types';
 import { SERVER_URL } from '../../../../configs/api';
+import useForm from '../../../../hooks/useForm';
+import { formatDate } from '../../../../utils/utils';
 
 function FillInfoStep() {
   const { goNextStep } = useOutletContext<{
@@ -15,39 +17,17 @@ function FillInfoStep() {
     goNextStep: () => void;
   }>();
   const { postcode, addressData } = useDaumPostcode();
-  const [watchingValues, setWatchingValues] = useState({
-    email: '',
-    password: '',
-    'confirm-password': '',
-  });
 
   const [isEmailUnique, setIsEmailUnique] = useState(false);
-  const [isConfirmPasswordSame, setIsConfirmPasswordSame] = useState(false);
-
-  const handleChange: React.FormEventHandler<HTMLInputElement> = ({
-    target,
-  }) => {
-    const { name, value } = target as HTMLInputElement;
-
-    if (name === 'email') setIsEmailUnique(false);
-
-    if (name === 'password') {
-      setIsConfirmPasswordSame(
-        watchingValues['confirm-password'] === value && value !== ''
-      );
-    }
-
-    if (name === 'confirm-password') {
-      setIsConfirmPasswordSame(
-        watchingValues['password'] === value && value !== ''
-      );
-    }
-
-    setWatchingValues((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
-  };
+  const [isValidConfirmPassword, setIsValidConfirmPassword] = useState(false);
+  const {
+    isSubmitting,
+    watchingValues,
+    errors,
+    touched,
+    registerForm,
+    register,
+  } = useForm({ validationMode: 'onchange', shouldUseReportValidity: false });
 
   const handleClickAddressButton = () => {
     postcode?.open();
@@ -81,14 +61,12 @@ function FillInfoStep() {
   };
 
   const handleSubmit: React.FormEventHandler<HTMLFormElement> = async (e) => {
-    e.preventDefault();
-
     const payload = extractPayloadWithForm(e.target as HTMLFormElement);
 
     try {
-      if (!isEmailUnique || !isConfirmPasswordSame || !addressData) {
+      if (!isEmailUnique || !isValidConfirmPassword || !addressData) {
         throw new Error(
-          '이메일, 패스워드 확인, 주소 중 유효하지 않은 값이 있습니다.'
+          '이메일, 비밀번호, 주소 중 유효하지 않은 값이 있습니다.'
         );
       }
 
@@ -122,6 +100,18 @@ function FillInfoStep() {
     }
   };
 
+  const handleError: React.FormEventHandler<HTMLFormElement> = ({ target }) => {
+    const { elements } = target as HTMLFormElement;
+    const firstInvalidInput = Array.from(elements).find((element) => {
+      const { validationMessage } = element as HTMLInputElement;
+
+      return validationMessage !== '';
+    }) as HTMLInputElement;
+
+    alert(`${firstInvalidInput.validationMessage} [${firstInvalidInput.name}]`);
+    firstInvalidInput.focus();
+  };
+
   const handleClickIsEmailDuplicated = async () => {
     const email = watchingValues['email'];
 
@@ -142,7 +132,7 @@ function FillInfoStep() {
   };
 
   return (
-    <S.Form onSubmit={handleSubmit}>
+    <S.Form {...registerForm({ onSubmit: handleSubmit, onError: handleError })}>
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label required>이메일</S.Label>
@@ -150,15 +140,25 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <Input
             type="email"
-            name="email"
-            placeholder="woowashop@woowahan.com"
-            pattern="[0-9a-zA-Z]([-_.]?[0-9a-zA-Z])*@[0-9a-zA-Z]([-_.]?[0-9a-zA-Z])*\.([a-zA-Z])+"
-            required
-            onChange={handleChange}
+            {...register('email', {
+              placeholder: 'woowashop@woowahan.com',
+              maxLength: 50,
+              pattern:
+                '[0-9a-zA-Z]([-_.]?[0-9a-zA-Z])*@[0-9a-zA-Z]([-_.]?[0-9a-zA-Z])*.([a-zA-Z])+',
+              patternMessage: '이메일 형식에 맞지 않습니다.',
+              required: true,
+              // watch: true,
+              onChange: () => {
+                setIsEmailUnique(false);
+              },
+            })}
           />
-          {isEmailUnique && (
-            <S.HintParagraph>사용 가능한 이메일입니다.</S.HintParagraph>
-          )}
+          {(touched['email'] && errors['email']?.length > 0 && (
+            <S.HintParagraph>{errors['email']}</S.HintParagraph>
+          )) ||
+            (touched['email'] && !isEmailUnique && (
+              <S.HintParagraph>이메일 중복 확인이 필요합니다.</S.HintParagraph>
+            ))}
         </S.CenterFlexBox>
         <S.RightFlexBox>
           <S.Button type="button" onClick={handleClickIsEmailDuplicated}>
@@ -167,7 +167,6 @@ function FillInfoStep() {
         </S.RightFlexBox>
       </S.FormFieldBox>
 
-      {/* ------------------------------------ */}
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label required>비밀번호</S.Label>
@@ -175,19 +174,30 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <Input
             type="password"
-            name="password"
-            placeholder="비밀번호를 입력해주세요."
-            minLength={8}
-            maxLength={20}
-            pattern="(?=.*[0-9])(?=.*[a-z])(?=.*[!@#&()-\[{}\]:;',?/*~$^+=<>]).{8,20}"
-            value={watchingValues['password']}
-            onChange={handleChange}
-            required
+            {...register('password', {
+              placeholder: '비밀번호를 입력해주세요.',
+              minLength: 8,
+              maxLength: 20,
+              pattern:
+                "(?=.*[0-9])(?=.*[a-z])(?=.*[!@#&()\\-\\[{}\\]:;',?/*~$^+=<>]).{8,20}",
+              patternMessage:
+                '비밀번호는 하나 이상의 영문자, 숫자, 특수문자로 이루어져야 합니다.',
+              required: true,
+              watch: true,
+              onChange: (e) => {
+                setIsValidConfirmPassword(
+                  watchingValues['confirm-password'] === e.target.value
+                );
+              },
+            })}
           />
+          {touched['password'] && errors['password']?.length > 0 && (
+            <S.HintParagraph>{errors['password']}</S.HintParagraph>
+          )}
         </S.CenterFlexBox>
         <S.RightFlexBox />
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label required>비밀번호 확인</S.Label>
@@ -195,21 +205,34 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <Input
             type="password"
-            name="confirm-password"
-            placeholder="비밀번호를 한번 더 입력해주세요."
-            minLength={8}
-            maxLength={20}
-            pattern="(?=.*[0-9])(?=.*[a-z])(?=.*[!@#&()-\[{}\]:;',?/*~$^+=<>]).{8,20}"
-            onChange={handleChange}
-            required
+            {...register('confirm-password', {
+              placeholder: '비밀번호를 한번 더 입력해주세요.',
+              minLength: 8,
+              maxLength: 20,
+              pattern:
+                "(?=.*[0-9])(?=.*[a-z])(?=.*[!@#&()\\-\\[{}\\]:;',?/*~$^+=<>]).{8,20}",
+              patternMessage:
+                '비밀번호는 하나 이상의 영문자, 숫자, 특수문자로 이루어져야 합니다.',
+              required: true,
+              watch: true,
+              onChange: (e) => {
+                setIsValidConfirmPassword(
+                  watchingValues['password'] === e.target.value
+                );
+              },
+            })}
           />
-          {isConfirmPasswordSame && (
-            <S.HintParagraph>비밀번호가 일치합니다.</S.HintParagraph>
-          )}
+          {(touched['confirm-password'] &&
+            errors['confirm-password']?.length > 0 && (
+              <S.HintParagraph>{errors['confirm-password']}</S.HintParagraph>
+            )) ||
+            (touched['confirm-password'] && !isValidConfirmPassword && (
+              <S.HintParagraph>비밀번호가 다릅니다.</S.HintParagraph>
+            ))}
         </S.CenterFlexBox>
         <S.RightFlexBox />
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label required>이름</S.Label>
@@ -217,17 +240,20 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <Input
             type="text"
-            name="name"
-            placeholder="이름을 입력해주세요."
-            minLength={2}
-            maxLength={5}
-            onChange={handleChange}
-            required
+            {...register('name', {
+              placeholder: '이름을 입력해주세요.',
+              minLength: 2,
+              maxLength: 5,
+              required: true,
+            })}
           />
+          {touched['name'] && errors['name'] && errors['name'].length > 0 && (
+            <S.HintParagraph>{errors['name']}</S.HintParagraph>
+          )}
         </S.CenterFlexBox>
         <S.RightFlexBox />
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label required>전화번호</S.Label>
@@ -235,18 +261,24 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <Input
             type="tel"
-            name="contact"
-            placeholder="01012345678"
-            pattern="[0-9]{8,11}"
-            onChange={handleChange}
-            required
+            {...register('contact', {
+              placeholder: '01012345678',
+              minLength: 8,
+              maxLength: 11,
+              pattern: '[0-9]{8,11}',
+              patternMessage: '전화번호는 8~11 자리 사이의 숫자여야 합니다.',
+              required: true,
+            })}
           />
+          {touched['contact'] && errors['contact']?.length > 0 && (
+            <S.HintParagraph>{errors['contact']}</S.HintParagraph>
+          )}
         </S.CenterFlexBox>
         <S.RightFlexBox>
           <S.Button disabled>인증번호 받기</S.Button>
         </S.RightFlexBox>
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label required>주소</S.Label>
@@ -281,7 +313,7 @@ function FillInfoStep() {
         </S.CenterFlexBox>
         <S.RightFlexBox />
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label>성별</S.Label>
@@ -289,19 +321,29 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <S.RadioButtonBox>
             <label>
-              <input type="radio" value="male" name="gender" />
+              <input
+                type="radio"
+                value="male"
+                {...register('gender', { defaultValue: 'male' })}
+              />
               남성
             </label>
             <label>
-              <input type="radio" value="female" name="gender" />
+              <input
+                type="radio"
+                value="male"
+                {...register('gender', { defaultValue: 'female' })}
+              />
               여성
             </label>
             <label>
               <input
                 type="radio"
-                value="undefined"
-                name="gender"
-                defaultChecked
+                value="male"
+                {...register('gender', {
+                  defaultValue: 'undefined',
+                  defaultChecked: true,
+                })}
               />
               선택 안함
             </label>
@@ -309,7 +351,7 @@ function FillInfoStep() {
         </S.CenterFlexBox>
         <S.RightFlexBox />
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.FormFieldBox>
         <S.LeftFlexBox>
           <S.Label>생년월일</S.Label>
@@ -317,16 +359,22 @@ function FillInfoStep() {
         <S.CenterFlexBox>
           <Input
             type="date"
-            name="birthday"
-            min="1900-01-01"
-            max="2022-06-01"
+            {...register('birthday', {
+              min: '1900-01-01',
+              max: formatDate(new Date(), 'yyyy-mm-dd'),
+            })}
           />
+          {touched['birthday'] && errors['birthday']?.length > 0 && (
+            <S.HintParagraph>{errors['birthday']}</S.HintParagraph>
+          )}
         </S.CenterFlexBox>
         <S.RightFlexBox />
       </S.FormFieldBox>
-      {/* ------------------------------------ */}
+
       <S.SubmitButtonBox>
-        <Button type="submit">다음으로</Button>
+        <Button type="submit" disabled={isSubmitting}>
+          다음으로
+        </Button>
       </S.SubmitButtonBox>
     </S.Form>
   );
